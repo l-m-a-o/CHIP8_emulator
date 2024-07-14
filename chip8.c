@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 
 #include <SDL2/SDL.h>
 
@@ -24,6 +25,7 @@ typedef struct {
     uint32_t bg_color ; //background RGBA
     uint32_t scale_factor; //number of windows pixels one chip8 pixel will be
     bool pixel_outlines ;
+    uint32_t clock_rate ; //instructions per second
 } config_t ;
 
 //states of emulator
@@ -105,7 +107,8 @@ bool set_config(config_t *config, const int argc, char **argv) {
         .fg_color = 0xFFFFFFFF, //white
         .bg_color = 0x000000FF, //black
         .scale_factor = 20, //default size becomes 1280*640
-        .pixel_outlines = true //default pixel outlines
+        .pixel_outlines = true, //default pixel outlines
+        .clock_rate = 500, //default clock rate
     } ;
 
     //override defaults from arguments
@@ -190,7 +193,7 @@ void clear_screen(const sdl_t sdl, const config_t config ) {
 }
 
 //update screen after instructions have been processed each cycle
-void update_screen(const sdl_t sdl , const config_t config , chip8_t chip8) {
+void update_screen(const sdl_t sdl , const config_t config , chip8_t *chip8) {
     SDL_Rect rect = {.x = 0 , .y = 0 , .w = config.scale_factor, .h = config.scale_factor} ;
 
     const uint8_t bg_r = (config.bg_color >> 24) & 0xFF ;
@@ -203,12 +206,12 @@ void update_screen(const sdl_t sdl , const config_t config , chip8_t chip8) {
     const uint8_t fg_b = (config.fg_color >> 8) & 0xFF ;
     const uint8_t fg_a = (config.fg_color ) & 0xFF ;
 
-    for ( uint32_t i = 0 ; i < sizeof chip8.display ; i ++) {
+    for ( uint32_t i = 0 ; i < sizeof chip8 -> display ; i ++) {
         //translate i to X and Y
         rect.x = (i % config.window_width)* config.scale_factor ;
         rect.y = (i / config.window_width)* config.scale_factor ;
 
-        if ( chip8.display[i]) {
+        if ( chip8 -> display[i]) {
             //draw fg color
             SDL_SetRenderDrawColor(sdl.renderer, fg_r,fg_g, fg_b, fg_a) ;
             SDL_RenderFillRect ( sdl.renderer , &rect) ;
@@ -228,22 +231,43 @@ void update_screen(const sdl_t sdl , const config_t config , chip8_t chip8) {
     SDL_RenderPresent(sdl.renderer) ;
 }
 
+//update timers ( delay and sound )
+void update_timers ( chip8_t *chip8) {
+    if ( chip8 -> delay_timer > 0) chip8 -> delay_timer -- ;
+
+    if ( chip8 -> delay_timer > 0) {
+        chip8 -> delay_timer -- ;
+        // play sound
+    }
+    else {
+        //stop playing sound
+    }
+}
+
 //to detect any input every time screeen refreshes
+//CHIP8 Keypad Map to QUERTY:
+//123C                1234
+//456D                QWER
+//789E                ASDF
+//A0BF                ZXCV
 void handle_input(chip8_t *chip8) {
     SDL_Event event ;
 
     while ( SDL_PollEvent(&event)) {
+
         switch ( event.type ) {
+
             case SDL_QUIT:
                 //Exit window and end program
                 chip8->state = QUIT ;
-                return;   
+                break; 
+
             case SDL_KEYDOWN:
                 switch (event.key.keysym.sym) {
                     case SDLK_ESCAPE:
                         //Escape key quits
                         chip8->state = QUIT ;
-                        return;
+                        break ;
                     case SDLK_SPACE:
                         //spacebar , 
                         if ( chip8 -> state == RUNNING) {
@@ -254,14 +278,61 @@ void handle_input(chip8_t *chip8) {
                             chip8->state = RUNNING ; //Resume
                             puts("Resumed!!!\n") ;
                         }
-                    default:
-                        break;
+                        break ;
+                    
+                    //map of qwerty to CHIP8 keypad
+                    case SDLK_1: chip8 ->keypad[0x01] = true ; break;
+                    case SDLK_2: chip8 ->keypad[0x02] = true ; break;
+                    case SDLK_3: chip8 ->keypad[0x03] = true ; break;
+                    case SDLK_4: chip8 ->keypad[0x0C] = true ; break;
+
+                    case SDLK_q: chip8 ->keypad[0x04] = true ; break;
+                    case SDLK_w: chip8 ->keypad[0x05] = true ; break;
+                    case SDLK_e: chip8 ->keypad[0x06] = true ; break;
+                    case SDLK_r: chip8 ->keypad[0x0D] = true ; break;
+
+                    case SDLK_a: chip8 ->keypad[0x07] = true ; break;
+                    case SDLK_s: chip8 ->keypad[0x08] = true ; break;
+                    case SDLK_d: chip8 ->keypad[0x09] = true ; break;
+                    case SDLK_f: chip8 ->keypad[0x0E] = true ; break;
+
+                    case SDLK_z: chip8 ->keypad[0x01] = true ; break;
+                    case SDLK_x: chip8 ->keypad[0x0A] = true ; break;
+                    case SDLK_c: chip8 ->keypad[0x0B] = true ; break;
+                    case SDLK_v: chip8 ->keypad[0x0F] = true ; break;
+                    
+                    default: break;
                 }
-                break ;  
+                break ;
+
             case SDL_KEYUP:  
-                break;
-            default:
-                break ;  
+                switch (event.key.keysym.sym) {
+                    //map of qwerty to CHIP8 keypad
+                    case SDLK_1: chip8 ->keypad[0x01] = false ; break;
+                    case SDLK_2: chip8 ->keypad[0x02] = false ; break;
+                    case SDLK_3: chip8 ->keypad[0x03] = false ; break;
+                    case SDLK_4: chip8 ->keypad[0x0C] = false ; break;
+
+                    case SDLK_q: chip8 ->keypad[0x04] = false ; break;
+                    case SDLK_w: chip8 ->keypad[0x05] = false ; break;
+                    case SDLK_e: chip8 ->keypad[0x06] = false ; break;
+                    case SDLK_r: chip8 ->keypad[0x0D] = false ; break;
+
+                    case SDLK_a: chip8 ->keypad[0x07] = false ; break;
+                    case SDLK_s: chip8 ->keypad[0x08] = false ; break;
+                    case SDLK_d: chip8 ->keypad[0x09] = false ; break;
+                    case SDLK_f: chip8 ->keypad[0x0E] = false ; break;
+
+                    case SDLK_z: chip8 ->keypad[0x01] = false ; break;
+                    case SDLK_x: chip8 ->keypad[0x0A] = false ; break;
+                    case SDLK_c: chip8 ->keypad[0x0B] = false ; break;
+                    case SDLK_v: chip8 ->keypad[0x0F] = false ; break;
+
+                    default: break ;
+                }
+                break ;
+
+            default: break ;  
         }
     }
 }
@@ -271,6 +342,7 @@ void print_debug_info( chip8_t *chip8, config_t config) {
     // Emulate opcode
     printf( "Address : 0x%04X, opcode: 0x%04X , Desc: ", chip8 -> PC -2 , chip8 -> inst.opcode) ;
     switch ((chip8 ->inst.opcode >>12) & 0x0F) { //this is switch for D or the type/category of instruction that the machine has to currently execute
+        
         case 0x0:
             switch (chip8 -> inst.NN) {
                 case 0xE0 :
@@ -286,22 +358,27 @@ void print_debug_info( chip8_t *chip8, config_t config) {
                     break;
             }
             break ;
+
         case 0x01:
             // 0x1NNN : jump(PC) to address NNN
             printf( "jump to address NNN (0x%03X)\n", chip8 -> inst.NNN) ;
             break ;
+
         case 0x02:
             //0x2NNN: call subroutine at NNN (push instruction to stack)
             printf("Store address 0x%04X and jump to NNN (0x%03X)\n", *chip8 ->stack_top, chip8 -> inst.NNN) ;
             break  ;
+
         case 0x03:
             //0x3XNN: skip next instruction if VX==NN
             printf ( "If V%X == NN (0x%02X == 0x%02X), skip next instruction\n",chip8 -> inst.X , chip8 -> V[chip8 -> inst.X],chip8 -> inst.NN);
             break ;
+
         case 0x04:
             //0x4XNN: skip next instruction if VX!=NN
             printf ( "If V%X != NN (0x%02X != 0x%02X), skip next instruction\n",chip8 -> inst.X , chip8 -> V[chip8 -> inst.X],chip8 -> inst.NN);
             break ;
+
         case 0x05:
             //0x5XY0: skip next instruction if VX==VY
             if (chip8 -> inst.N != 0){
@@ -310,17 +387,20 @@ void print_debug_info( chip8_t *chip8, config_t config) {
             }
             printf ( "If V%X == V%X  (0x%02X == 0x%02X), skip next instruction\n",chip8 -> inst.X ,chip8 -> inst.Y, chip8 -> V[chip8 -> inst.X],chip8 -> V[chip8 -> inst.Y]);
             break ;
+
         case 0x06:
             //0x6NNN: Set register VX to NN
             //basically put NN in register V[X]
             printf( "Set V%X to NN (0x%02X)\n" , chip8 -> inst.X , chip8 -> inst.NN) ;
             break;
+
         case 0x07:
             //0x7NNN: Add NN to VX
             //basically V[X] += NN
             printf( "Add: V%X += NN (0x%02X)\n" , chip8 -> inst.X , chip8 -> inst.NN) ;
             break;
-                case 0x08: 
+
+        case 0x08: 
             //0x8XYN:VX VY related ALU instructions
             switch ( chip8 -> inst.N) {
                 case 0x0 :
@@ -364,6 +444,7 @@ void print_debug_info( chip8_t *chip8, config_t config) {
                     break ; //invalid
             }
             break ;
+
         case 0x09:
             //0x9XY0: skip next instruction if VX!=VY
             if (chip8 -> inst.N != 0){
@@ -372,14 +453,22 @@ void print_debug_info( chip8_t *chip8, config_t config) {
             }
             printf ( "If V%X == V%X  (0x%02X != 0x%02X), skip next instruction\n",chip8 -> inst.X ,chip8 -> inst.Y, chip8 -> V[chip8 -> inst.X],chip8 -> V[chip8 -> inst.Y]);
             break ;
+
         case 0x0A:
             // 0xANNN: Set index register to NNN
             printf( "Set I to NNN (0x%03X)\n" , chip8 -> inst.NNN) ;
             break;
+
         case 0x0B:
             // 0xBNNN: jump to V0 + NNN
             printf( "jump to address V0 (0x%02X) + NNN (0x%03X)\n", chip8 -> V[0], chip8 -> inst.NNN) ;
             break;
+
+        case 0x0C:
+            // 0xCXNN: Sets VX = rand(0,255) & NN 
+            printf( "Set V%X = rand() %% 256 & NN (0x%02X)\n" , chip8 -> inst.X , chip8 -> inst.NN ) ;
+            break ;
+
         case 0x0D:
             //0xDXYN: Draw sprite at coords VX,VY of height N
             //sprite XORs the screen where drawn
@@ -390,25 +479,74 @@ void print_debug_info( chip8_t *chip8, config_t config) {
             chip8 -> V[0xF] = 0 ; //initialize carry flag to 0???
 
             printf ( "Display sprite at V%X,V%X (%u,%u) of height N (%u).\n" ,chip8 -> inst.X , chip8 -> inst.Y, X_coord, Y_coord,chip8 -> inst.N) ;
-            //loop for N rows
-            // for ( uint8_t i = 0 ; i < chip8 -> inst.N ; i ++) {
-            //     X_coord = original_X ; // reset X
-            //     const uint8_t sprite_data = chip8 -> ram[chip8 -> I + i] ; //I is address of sprite data, i is offset(each sprite is 1 byte wide)
-
-            //     for ( int j = 7 ; j >= 0 ; j --) {
-            //         bool *pixel = &chip8 -> display[Y_coord*config.window_width + X_coord] ;
-            //         const bool sprite_bit = ((sprite_data<<j)&1) ;
-
-            //         if ( sprite_bit && *pixel) chip8 -> V[0x0F] = 1 ; // carry flag condition
-            //         *pixel ^= sprite_bit ; // XOR pixel with data
-
-            //         if ( ++X_coord >= config.window_width) break ;  // right edge case
-            //     }
-                
-            //     if ( ++Y_coord >= config.window_height) break ;  // bottom edge case
-            // }
 
             break;
+
+        case 0x0E:
+            //0xEXNN: key pressed if statements
+            switch (chip8 -> inst.NN) {
+                case 0x09E:
+                    //0xEX9E: if key stored in VX is pressed, skip instruction
+                    printf ( "If key stored in V%X (0x%02X) is pressed, skip next instruction\n", chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] ) ;
+                    break ;
+                case 0x0A1:
+                    //0xEXA1: if key stored in VX is not pressed, skip instruction
+                    printf ( "If key stored in V%X (0x%02X) is not pressed, skip next instruction\n", chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] ) ;
+                    break ;
+                default:
+                    printf("Invalid opcode!!!\n") ;
+                    break ; //invalid
+            }
+            break ;
+
+        case 0x0F:
+            //0xFXNN: misc with register VX
+            switch ( chip8 -> inst.NN) {
+                case 0x07 :
+                    //0xVX07: sets VX to delay timer
+                    printf("Sets V%X = delay timer (0x%02X)\n", chip8 -> inst.X , chip8 -> delay_timer ) ;
+                    break ;
+                case 0x0A :
+                    //0xVX07: await for a keypress, then store first keypress in VX
+                    printf( "Wait till key pree, store at V%X\n", chip8 -> inst.X ) ;
+                    break ;
+                case 0x15 :
+                    //0xFX15: Set delay timer to VX
+                    printf( "Set delay timer to V%X (0x%02X)\n",chip8 -> inst.X,chip8 -> V[chip8 -> inst.X]) ;
+                    break ;    
+                case 0x18 :
+                    //0xFX15: Set sound timer to VX
+                    printf( "Set sound timer to V%X (0x%02X)\n",chip8 -> inst.X,chip8 -> V[chip8 -> inst.X]) ;
+                    break ;
+                case 0x1E :
+                    //0xFX15: Set I += VX
+                    printf("Set I (0x%04X) += V%X (0x%02X)\n",chip8 -> I,chip8 -> inst.X,chip8 -> V[chip8 -> inst.X] ) ;
+                    break ;  
+                case 0x29 :
+                    //0xFX29: Set I to location of sprite/font of char stored in VX(0x0-0xF) from RAM
+                    if ((chip8 -> V[chip8 -> inst.X]) > 0xF) {
+                        printf("VX stores value > F\n") ;
+                        break ; //font not availible
+                    }
+                    printf( "Set I to the sprite location in V%X (0x%02X)\n", chip8 -> inst.X,chip8 -> V[chip8 -> inst.X]) ;
+                    break;
+                case 0x33 :
+                    //0xFX33: Store BCD(VX(0-255)) at location I,I+1,I+2; eg. if VX=205 and I=5 then ram[5]=2,ram[6]=0 ,ram[7]=5
+                    printf("Store BCD at V%X (0x%02X) in RAM starting from location I (0x%04X)\n", chip8 -> inst.X,chip8 -> V[chip8 -> inst.X], chip8 -> I) ;
+                    break;    
+                case 0x55 :
+                    //0xFX55: Dump V0 to VX in ram starting from indesx stored at I, basically ram[I]=V0, ram[I+1]=V1 ...ram[I+X] = V[x]
+                    printf( "Dump V0 to V%X into RAM starting from location I (0x%04X)\n", chip8 -> inst.X,  chip8 -> I) ;
+                    break;
+                case 0x65 :
+                    //0xFX65: Load registers V0 to VX with ram[I] to ram[I+X], opposite of above
+                    printf( "Load V0 to V%X from RAM starting from location I (0x%04X)\n", chip8 -> inst.X,  chip8 -> I) ;
+                    break;
+                default :
+                    break ; //invalid
+            }
+            break ;
+
         default :
             printf("Unimplemented opcode!!!\n") ;
             break; //for invalid/unimplemented instructions
@@ -438,6 +576,7 @@ print_debug_info(chip8, config) ;
 
     // Emulate opcode
     switch ((chip8 ->inst.opcode >>12) & 0x0F) { //this is switch for D or the type/category of instruction that the machine has to currently execute
+        
         case 0x0:
             switch (chip8 -> inst.NN) {
                 case 0xE0 :
@@ -452,38 +591,46 @@ print_debug_info(chip8, config) ;
                     break;
             }
             break ;
+
         case 0x01:
             // 0x1NNN : jump(PC) to address NNN
             chip8 -> PC = chip8 -> inst.NNN ;
             break ;
+
         case 0x02:
             //0x2NNN: call subroutine at NNN (push instruction to stack)
             *chip8 -> stack_top ++ = chip8 -> PC ; // save current address of instruction to stack (for returning back to it later)
             chip8 -> PC = chip8 -> inst.NNN ; // make PC point to address of subroutine which will be next instruction
             break ;
+
         case 0x03:
             //0x3XNN: skip next instruction if VX==NN
             if ( chip8 -> V[chip8 ->inst.X] == chip8 ->inst.NN) chip8 -> PC += 2 ;
             break ;
+
         case 0x04:
             //0x4XNN: skip next instruction if VX!=NN
             if ( chip8 -> V[chip8 ->inst.X] != chip8 ->inst.NN) chip8 -> PC += 2 ;
             break ;
+
         case 0x05:
             //0x5XY0: skip next instruction if VX==VY
             if (chip8 -> inst.N != 0) break; //invalid opcode
             if ( chip8 -> V[chip8 ->inst.X] == chip8 -> V[chip8 ->inst.Y]) chip8 -> PC += 2 ;
             break ;
+
         case 0x06:
             //0x6NNN: Set register VX to NN
             //basically put NN in register V[X]
             chip8 -> V[chip8 ->inst.X] = chip8 ->inst.NN ;
             break;
+
         case 0x07:
             //0x7NNN: Add NN to VX
             //basically V[X] += NN
             chip8 -> V[chip8 ->inst.X] += chip8 ->inst.NN ;
             break;
+
         case 0x08: 
             //0x8XYN:VX VY related ALU instructions
             switch ( chip8 -> inst.N) {
@@ -535,19 +682,28 @@ print_debug_info(chip8, config) ;
                     break ; //invalid
             }
             break ;
+
         case 0x09:
             //0x9XY0: skip next instruction if VX!=VY
             if (chip8 -> inst.N != 0) break; //invalid opcode
             if ( chip8 -> V[chip8 ->inst.X] != chip8 -> V[chip8 ->inst.Y]) chip8 -> PC += 2 ;
             break ;
+
         case 0x0A:
             // 0xANNN: Set index register to NNN
             chip8 -> I = chip8 -> inst.NNN ;
             break;
+
         case 0x0B:
             // 0xBNNN: jump to V0 + NNN
             chip8 -> PC = chip8 -> inst.NNN  + chip8 -> V[0];
             break;
+
+        case 0x0C:
+            // 0xCXNN: Sets VX = rand(0,255) & NN 
+            chip8 -> V[ chip8 -> inst.X ] = (rand() % 256) & chip8-> inst.NN ;
+            break ;
+
         case 0x0D:
             //0xDXYN: Draw sprite at coords VX,VY of height N
             //sprite XORs the screen where drawn
@@ -576,6 +732,82 @@ print_debug_info(chip8, config) ;
             }
 
             break;
+
+        case 0x0E:
+            //0xEXNN: key pressed if statements
+            switch (chip8 -> inst.NN) {
+                case 0x09E:
+                    //0xEX9E: if key stored in VX is pressed, skip instruction
+                    if (chip8 ->keypad[chip8 ->V[chip8 ->inst.X]]) chip8 -> PC += 2 ;
+                    break ;
+                case 0x0A1:
+                    //0xEXA1: if key stored in VX is not pressed, skip instruction
+                    if (!chip8 ->keypad[chip8 ->V[chip8 ->inst.X]]) chip8 -> PC += 2 ;
+                    break ;
+                default:
+                    break ; //invalid
+            }
+            break ;
+
+        case 0x0F:
+            //0xFXNN: misc with register VX
+            switch ( chip8 -> inst.NN) {
+                case 0x07 :
+                    //0xVX07: sets VX to delay timer
+                    chip8 -> V[chip8 -> inst.X] = chip8 -> delay_timer ;
+                    break ;
+                case 0x0A :
+                    //0xVX07: await for a keypress, then store first keypress in VX
+                    bool flag = true ;
+                    for ( uint8_t i = 0 ; i < sizeof chip8 ->keypad ; i ++) {
+                        if (chip8 -> keypad[i]) {
+                            chip8 -> V[chip8 -> inst.X] = i ;
+                            flag = false;
+                            break ;
+                        }
+                    }
+                    if ( flag ) chip8 -> PC -= 2 ; //repeat instruction if no key pressed
+                    break ;
+                case 0x15 :
+                    //0xFX15: Set delay timer to VX
+                    chip8 -> delay_timer = chip8 -> V[chip8 -> inst.X] ;
+                    break ;    
+                case 0x18 :
+                    //0xFX15: Set sound timer to VX
+                    chip8 -> sound_timer = chip8 -> V[chip8 -> inst.X] ;
+                    break ;
+                case 0x1E :
+                    //0xFX15: Set I += VX
+                    chip8 -> I += chip8 -> V[chip8 -> inst.X] ;
+                    break ;  
+                case 0x29 :
+                    //0xFX29: Set I to location of sprite/font of char stored in VX(0x0-0xF) from RAM
+                    if ((chip8 -> V[chip8 -> inst.X]) > 0xF) break ; //font not availible
+                    chip8 -> I = (chip8 -> V[chip8 -> inst.X]) * 5 ;
+                    break;
+                case 0x33 :
+                    //0xFX33: Store BCD(VX(0-255)) at location I,I+1,I+2; eg. if VX=205 and I=5 then ram[5]=2,ram[6]=0 ,ram[7]=5
+                    chip8 -> ram[chip8 -> I + 2] = (chip8 -> V[chip8 -> inst.X]) % 10 ;           //ones digit store in ram[I]
+                    chip8 -> ram[chip8 -> I + 1] = ((chip8 -> V[chip8 -> inst.X])/10) % 10 ;  //tens digit store in ram[I+1]
+                    chip8 -> ram[chip8 -> I ] = ((chip8 -> V[chip8 -> inst.X])/100) % 10 ; //hundereds digit store in ram[I+2]
+                    break;    
+                case 0x55 :
+                    //0xFX55: Dump V0 to VX in ram starting from indesx stored at I, basically ram[I]=V0, ram[I+1]=V1 ...ram[I+X] = V[x]
+                    for ( uint8_t i = 0; i <= chip8 -> inst.X ; i ++) {
+                        chip8 -> ram[chip8 -> I + i] = chip8 -> V[i] ; //dump sequentially
+                    }
+                    break;
+                case 0x65 :
+                    //0xFX65: Load registers V0 to VX with ram[I] to ram[I+X], opposite of above
+                    for ( uint8_t i = 0; i <= chip8 -> inst.X ; i ++) {
+                        chip8 -> V[i] = chip8 -> ram[chip8 -> I + i]  ; //load sequentially
+                    }
+                    break;
+                default :
+                    break ; //invalid
+            }
+            break ;
+
         default :
             break; //for invalid/unimplemented instructions
     }
@@ -607,6 +839,9 @@ int main( int argc, char **argv) {
     // initial screen clear 
     clear_screen(sdl,config) ;
 
+    //seed random
+    srand(time(NULL)) ;
+
     //main emulator loop
     while (chip8.state != QUIT) {
         //handle user input
@@ -614,16 +849,27 @@ int main( int argc, char **argv) {
 
         if (chip8.state == PAUSED) continue ;
 
-        //Get_time()
-        //Emulate chip8 instruction
-        emulate_instruction(&chip8 , config) ;
-        //Get_time
+        //Get time before instructions
+        const uint64_t start_time = SDL_GetPerformanceCounter() ;
+
+        //Emulate chip8 instructions
+        for (uint32_t i = 0 ; i < config.clock_rate/60 ; i ++)
+            emulate_instruction(&chip8 , config) ;
+
+        //Get time after instructions
+        const uint64_t end_time = SDL_GetPerformanceCounter() ;
+
+        //tiime elapsed in ms(from SDL docs)
+        const double time_elapsed = (double)((end_time - start_time)*1000) / SDL_GetPerformanceFrequency() ;
 
         //Delay for 60 fps ~ 16.67
-        SDL_Delay(17) ;
+        SDL_Delay(16.67f > time_elapsed ? 16.67f - time_elapsed : 0) ;
 
         // Update window with changes
-        update_screen(sdl , config , chip8) ;
+        update_screen(sdl , config , &chip8) ;
+
+        //update delay and sound timers
+        update_timers(&chip8) ;
     }
 
 
@@ -631,9 +877,6 @@ int main( int argc, char **argv) {
     final_cleanup(sdl) ;
     
     
-    puts("Testing on Windows") ;
+    puts("Program killed!!!") ;
     exit(EXIT_SUCCESS) ;
-
-
-    return 1;
 }
