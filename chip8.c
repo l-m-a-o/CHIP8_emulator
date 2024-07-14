@@ -288,12 +288,28 @@ void print_debug_info( chip8_t *chip8, config_t config) {
             break ;
         case 0x01:
             // 0x1NNN : jump(PC) to address NNN
-            printf( "jump to address 0x%03X\n", chip8 -> inst.NNN) ;
+            printf( "jump to address NNN (0x%03X)\n", chip8 -> inst.NNN) ;
             break ;
         case 0x02:
             //0x2NNN: call subroutine at NNN (push instruction to stack)
             printf("Store address 0x%04X and jump to NNN (0x%03X)\n", *chip8 ->stack_top, chip8 -> inst.NNN) ;
             break  ;
+        case 0x03:
+            //0x3XNN: skip next instruction if VX==NN
+            printf ( "If V%X == NN (0x%02X == 0x%02X), skip next instruction\n",chip8 -> inst.X , chip8 -> V[chip8 -> inst.X],chip8 -> inst.NN);
+            break ;
+        case 0x04:
+            //0x4XNN: skip next instruction if VX!=NN
+            printf ( "If V%X != NN (0x%02X != 0x%02X), skip next instruction\n",chip8 -> inst.X , chip8 -> V[chip8 -> inst.X],chip8 -> inst.NN);
+            break ;
+        case 0x05:
+            //0x5XY0: skip next instruction if VX==VY
+            if (chip8 -> inst.N != 0){
+                printf("Invalid opcode!!!\n"); //invalid opcode
+                break;
+            }
+            printf ( "If V%X == V%X  (0x%02X == 0x%02X), skip next instruction\n",chip8 -> inst.X ,chip8 -> inst.Y, chip8 -> V[chip8 -> inst.X],chip8 -> V[chip8 -> inst.Y]);
+            break ;
         case 0x06:
             //0x6NNN: Set register VX to NN
             //basically put NN in register V[X]
@@ -304,9 +320,65 @@ void print_debug_info( chip8_t *chip8, config_t config) {
             //basically V[X] += NN
             printf( "Add: V%X += NN (0x%02X)\n" , chip8 -> inst.X , chip8 -> inst.NN) ;
             break;
+                case 0x08: 
+            //0x8XYN:VX VY related ALU instructions
+            switch ( chip8 -> inst.N) {
+                case 0x0 :
+                    //Set VX = VY
+                    printf( "Set V%X (0x%02X) to V%X (0x%02X)\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break;
+                case 0x01 :
+                    //Set VX |= VY
+                    printf( "Set V%X (0x%02X) | = V%X (0x%02X)\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break ;
+                case 0x02 :
+                    //Set VX &= VY
+                    printf( "Set V%X (0x%02X) &= V%X (0x%02X)\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break ;
+                case 0x03 :
+                    //Set VX ^= VY
+                    printf( "Set V%X (0x%02X) ^= V%X (0x%02X)\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break ;
+                case 0x04 :
+                    //Set VX += VY, VF is for overflow, VF = 1 if carry
+                    printf( "Set V%X (0x%02X) += V%X (0x%02X)\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break ;
+                case 0x05 :
+                    //Set VX -= VY, VF is for underflow, VF = 0 if borrow
+                    printf( "Set V%X (0x%02X) -= V%X (0x%02X)\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break;
+                case 0x06 :
+                    //Set VX >>= 1, VF is leftmost bit before shift
+                    printf( "Set V%X (0x%02X) >>= 1\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] ) ;
+                    break;
+                case 0x07 :
+                    //Set VX = VY - VX, VF is for underflow, VF = 0 if borrow
+                    printf( "Set V%X (0x%02X) -= V%X (0x%02X), VX = - VX\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] , chip8 -> inst.Y , chip8 -> V[chip8 -> inst.Y] ) ;
+                    break;
+                case 0x0E :
+                    //Set VX >>= 1, VF is leftmost bit before shift
+                    printf( "Set V%X (0x%02X) <<= 1\n" , chip8 -> inst.X , chip8 -> V[chip8 -> inst.X] ) ;
+                    break;
+                default :
+                    printf("Invalid opcode!!!\n") ;
+                    break ; //invalid
+            }
+            break ;
+        case 0x09:
+            //0x9XY0: skip next instruction if VX!=VY
+            if (chip8 -> inst.N != 0){
+                printf("Invalid opcode!!!\n"); //invalid opcode
+                break;
+            }
+            printf ( "If V%X == V%X  (0x%02X != 0x%02X), skip next instruction\n",chip8 -> inst.X ,chip8 -> inst.Y, chip8 -> V[chip8 -> inst.X],chip8 -> V[chip8 -> inst.Y]);
+            break ;
         case 0x0A:
             // 0xANNN: Set index register to NNN
             printf( "Set I to NNN (0x%03X)\n" , chip8 -> inst.NNN) ;
+            break;
+        case 0x0B:
+            // 0xBNNN: jump to V0 + NNN
+            printf( "jump to address V0 (0x%02X) + NNN (0x%03X)\n", chip8 -> V[0], chip8 -> inst.NNN) ;
             break;
         case 0x0D:
             //0xDXYN: Draw sprite at coords VX,VY of height N
@@ -317,7 +389,7 @@ void print_debug_info( chip8_t *chip8, config_t config) {
             //const uint8_t original_X = X_coord ;
             chip8 -> V[0xF] = 0 ; //initialize carry flag to 0???
 
-            printf ( "Display sprite at V%X,V%x (%u,%u) of height N (%u).\n" ,chip8 -> inst.X , chip8 -> inst.Y, X_coord, Y_coord,chip8 -> inst.N) ;
+            printf ( "Display sprite at V%X,V%X (%u,%u) of height N (%u).\n" ,chip8 -> inst.X , chip8 -> inst.Y, X_coord, Y_coord,chip8 -> inst.N) ;
             //loop for N rows
             // for ( uint8_t i = 0 ; i < chip8 -> inst.N ; i ++) {
             //     X_coord = original_X ; // reset X
@@ -389,6 +461,19 @@ print_debug_info(chip8, config) ;
             *chip8 -> stack_top ++ = chip8 -> PC ; // save current address of instruction to stack (for returning back to it later)
             chip8 -> PC = chip8 -> inst.NNN ; // make PC point to address of subroutine which will be next instruction
             break ;
+        case 0x03:
+            //0x3XNN: skip next instruction if VX==NN
+            if ( chip8 -> V[chip8 ->inst.X] == chip8 ->inst.NN) chip8 -> PC += 2 ;
+            break ;
+        case 0x04:
+            //0x4XNN: skip next instruction if VX!=NN
+            if ( chip8 -> V[chip8 ->inst.X] != chip8 ->inst.NN) chip8 -> PC += 2 ;
+            break ;
+        case 0x05:
+            //0x5XY0: skip next instruction if VX==VY
+            if (chip8 -> inst.N != 0) break; //invalid opcode
+            if ( chip8 -> V[chip8 ->inst.X] == chip8 -> V[chip8 ->inst.Y]) chip8 -> PC += 2 ;
+            break ;
         case 0x06:
             //0x6NNN: Set register VX to NN
             //basically put NN in register V[X]
@@ -399,9 +484,69 @@ print_debug_info(chip8, config) ;
             //basically V[X] += NN
             chip8 -> V[chip8 ->inst.X] += chip8 ->inst.NN ;
             break;
+        case 0x08: 
+            //0x8XYN:VX VY related ALU instructions
+            switch ( chip8 -> inst.N) {
+                case 0x0 :
+                    //Set VX = VY
+                    chip8 -> V[chip8 -> inst.X] = chip8 -> V[chip8 -> inst.Y] ;
+                    break;
+                case 0x01 :
+                    //Set VX |= VY
+                    chip8 -> V[chip8 -> inst.X] |= chip8 -> V[chip8 -> inst.Y] ;
+                    break ;
+                case 0x02 :
+                    //Set VX &= VY
+                    chip8 -> V[chip8 -> inst.X] &= chip8 -> V[chip8 -> inst.Y] ;
+                    break ;
+                case 0x03 :
+                    //Set VX ^= VY
+                    chip8 -> V[chip8 -> inst.X] ^= chip8 -> V[chip8 -> inst.Y] ;
+                    break ;
+                case 0x04 :
+                    //Set VX += VY, VF is for overflow, VF = 1 if carry
+                    if ((uint16_t)chip8 -> V[chip8 -> inst.X] + chip8 -> V[chip8 -> inst.Y] > 255 )  chip8 -> V[0x0F] = 0x01;
+                    else chip8 -> V[0x0F] = 0x0;
+                    chip8 -> V[chip8 -> inst.X] += chip8 -> V[chip8 -> inst.Y] ;
+                    break ;
+                case 0x05 :
+                    //Set VX -= VY, VF is for underflow, VF = 0 if borrow
+                    if (chip8 -> V[chip8 -> inst.X] < chip8 -> V[chip8 -> inst.Y]  )  chip8 -> V[0x0F] = 0x0;
+                    else chip8 -> V[0x0F] = 0x01;
+                    chip8 -> V[chip8 -> inst.X] -= chip8 -> V[chip8 -> inst.Y] ;
+                    break;
+                case 0x06 :
+                    //Set VX >>= 1, VF is leftmost bit before shift
+                    chip8 -> V[0x0F] = chip8 -> V[chip8 -> inst.X] & (0x01) ;
+                    chip8 -> V[chip8 -> inst.X] >>= 1 ;
+                    break;
+                case 0x07 :
+                    //Set VX = VY - VX, VF is for underflow, VF = 0 if borrow
+                    if (chip8 -> V[chip8 -> inst.X] > chip8 -> V[chip8 -> inst.Y]  )  chip8 -> V[0x0F] = 0x0;
+                    else chip8 -> V[0x0F] = 0x01;
+                    chip8 -> V[chip8 -> inst.X] = chip8 -> V[chip8 -> inst.Y] - chip8 -> V[chip8 -> inst.X] ;
+                    break;
+                case 0x0E :
+                    //Set VX >>= 1, VF is leftmost bit before shift
+                    chip8 -> V[0x0F] = chip8 -> V[chip8 -> inst.X] >> 7 ;
+                    chip8 -> V[chip8 -> inst.X] <<= 1 ;
+                    break;
+                default :
+                    break ; //invalid
+            }
+            break ;
+        case 0x09:
+            //0x9XY0: skip next instruction if VX!=VY
+            if (chip8 -> inst.N != 0) break; //invalid opcode
+            if ( chip8 -> V[chip8 ->inst.X] != chip8 -> V[chip8 ->inst.Y]) chip8 -> PC += 2 ;
+            break ;
         case 0x0A:
             // 0xANNN: Set index register to NNN
             chip8 -> I = chip8 -> inst.NNN ;
+            break;
+        case 0x0B:
+            // 0xBNNN: jump to V0 + NNN
+            chip8 -> PC = chip8 -> inst.NNN  + chip8 -> V[0];
             break;
         case 0x0D:
             //0xDXYN: Draw sprite at coords VX,VY of height N
