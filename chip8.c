@@ -15,6 +15,8 @@
 typedef struct {
     SDL_Window *window ;
     SDL_Renderer *renderer ;
+    SDL_AudioSpec want , have ;
+    SDL_AudioDeviceID audio_device_id;
 } sdl_t ;
 
 //configuration 
@@ -26,6 +28,9 @@ typedef struct {
     uint32_t scale_factor; //number of windows pixels one chip8 pixel will be
     bool pixel_outlines ;
     uint32_t clock_rate ; //instructions per second
+    uint32_t square_freq;  //frequency of square wave to be played
+    uint32_t audio_sample_rate ; 
+    uint16_t volume;       //volume
 } config_t ;
 
 //states of emulator
@@ -69,8 +74,27 @@ typedef struct {
 } chip8_t ;
 
 
+//sdl audio callback function
+void audio_callback(void *userdata , uint8_t *stream, int len) {
+
+    config_t *config = (config_t *) userdata ;
+
+    // fill stream with data
+    int16_t *audio_data = (int16_t *) stream ;
+    static uint32_t running_sample_index = 0 ; 
+    const int32_t square_wave_period = config ->audio_sample_rate /config -> square_freq;
+    const int32_t half_square_wave_period = square_wave_period/2;
+
+    //writing the square wave into audio_data[](bitstream??), filling out 2 bytes at a time ;
+    for ( int i = 0 ; i < len/2 ; i ++) {
+        //data= +volume and -volume alternatively for square wave
+        audio_data[i] = ((running_sample_index ++ / half_square_wave_period) % 2) ? config -> volume : -config->volume ;
+
+    }
+}
+
 //initialize SDL
-bool init_sdl(sdl_t *sdl , const config_t config) {
+bool init_sdl(sdl_t *sdl ,config_t *config) {
     if ( SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0) {
         SDL_Log("Could not initialize SDL subsystems!!! \n %s\n", SDL_GetError()) ;
         return false ;
@@ -78,8 +102,8 @@ bool init_sdl(sdl_t *sdl , const config_t config) {
 
     sdl->window = SDL_CreateWindow("chip8", SDL_WINDOWPOS_CENTERED,
                                     SDL_WINDOWPOS_CENTERED,
-                                    config.window_width * config.scale_factor, 
-                                    config.window_height * config.scale_factor,
+                                    config -> window_width * config -> scale_factor, 
+                                    config -> window_height * config -> scale_factor,
                                     0) ;
     
     if ( !sdl->window) {
@@ -93,6 +117,27 @@ bool init_sdl(sdl_t *sdl , const config_t config) {
         return false ;
     }
 
+    //init audio stuff
+    sdl -> want = (SDL_AudioSpec) {
+        .freq = 44100 ,           //"441100Hz" CD quality
+        .format = AUDIO_S16LSB ,  // Signed 16 bit little endian
+        .channels = 1 ,           //mono sound
+        .samples = 512 ,
+        .callback = audio_callback, //fuction which calls back to get audio data
+        .userdata = config,      //user data is passed to audio callback  
+    } ;
+
+    sdl -> audio_device_id = SDL_OpenAudioDevice( NULL , 0 , &sdl->want , &sdl->have, 0) ;
+
+    if ( sdl -> audio_device_id == 0)  {
+        SDL_Log("Could not get audio device!!! %s\n", SDL_GetError()) ;
+        return false ;
+    }
+
+    if ( (sdl -> want.format != sdl ->have.format) || sdl -> want.channels != sdl->have.channels){
+        SDL_Log("Could not get required audio specs!!! %s\n", SDL_GetError()) ;
+        return false ;
+    }
 
     return true ; //SUCCESSFULLY INITIALIZED
 }
@@ -105,10 +150,13 @@ bool set_config(config_t *config, const int argc, char **argv) {
         .window_width = 64 , //original chip8 x
         .window_height = 32, //original chip8 y
         .fg_color = 0xFFFFFFFF, //white
-        .bg_color = 0x000000FF, //black
+        .bg_color = 0x0530ADFF, //black
         .scale_factor = 20, //default size becomes 1280*640
         .pixel_outlines = true, //default pixel outlines
-        .clock_rate = 500, //default clock rate
+        .clock_rate = 700, //default clock rate
+        .square_freq = 440, //440Hz A4
+        .audio_sample_rate = 44100 , //Hz CD quality
+        .volume = 3000,    // out of INT16_MAX
     } ;
 
     //override defaults from arguments
@@ -179,6 +227,7 @@ bool init_chip8 ( chip8_t *chip8, const char rom_name[]) {
 void final_cleanup(const sdl_t sdl) {
     SDL_DestroyRenderer(sdl.renderer) ;
     SDL_DestroyWindow(sdl.window) ;
+    SDL_CloseAudioDevice(sdl.audio_device_id) ;
     SDL_Quit() ; // SHUT EVERYTHING BEFORE FINISHING PROGRAM
 }
 
@@ -232,15 +281,17 @@ void update_screen(const sdl_t sdl , const config_t config , chip8_t *chip8) {
 }
 
 //update timers ( delay and sound )
-void update_timers ( chip8_t *chip8) {
+void update_timers ( chip8_t *chip8 , sdl_t sdl) {
     if ( chip8 -> delay_timer > 0) chip8 -> delay_timer -- ;
 
-    if ( chip8 -> delay_timer > 0) {
-        chip8 -> delay_timer -- ;
+    if ( chip8 -> sound_timer > 0) {
+        chip8 -> sound_timer -- ;
         // play sound
+        SDL_PauseAudioDevice(sdl.audio_device_id, 0) ; //play 
     }
     else {
         //stop playing sound
+        SDL_PauseAudioDevice(sdl.audio_device_id, 1) ;  //pause
     }
 }
 
@@ -296,8 +347,8 @@ void handle_input(chip8_t *chip8) {
                     case SDLK_d: chip8 ->keypad[0x09] = true ; break;
                     case SDLK_f: chip8 ->keypad[0x0E] = true ; break;
 
-                    case SDLK_z: chip8 ->keypad[0x01] = true ; break;
-                    case SDLK_x: chip8 ->keypad[0x0A] = true ; break;
+                    case SDLK_z: chip8 ->keypad[0x0A] = true ; break;
+                    case SDLK_x: chip8 ->keypad[0x00] = true ; break;
                     case SDLK_c: chip8 ->keypad[0x0B] = true ; break;
                     case SDLK_v: chip8 ->keypad[0x0F] = true ; break;
                     
@@ -323,8 +374,8 @@ void handle_input(chip8_t *chip8) {
                     case SDLK_d: chip8 ->keypad[0x09] = false ; break;
                     case SDLK_f: chip8 ->keypad[0x0E] = false ; break;
 
-                    case SDLK_z: chip8 ->keypad[0x01] = false ; break;
-                    case SDLK_x: chip8 ->keypad[0x0A] = false ; break;
+                    case SDLK_z: chip8 ->keypad[0x0A] = false ; break;
+                    case SDLK_x: chip8 ->keypad[0x00] = false ; break;
                     case SDLK_c: chip8 ->keypad[0x0B] = false ; break;
                     case SDLK_v: chip8 ->keypad[0x0F] = false ; break;
 
@@ -829,7 +880,7 @@ int main( int argc, char **argv) {
 
     // Initialize SDL
     sdl_t sdl = {0} ;
-    if (!init_sdl(&sdl, config)) exit(EXIT_FAILURE) ;
+    if (!init_sdl(&sdl, &config)) exit(EXIT_FAILURE) ;
 
     //Initialize machine chip8 object
     chip8_t chip8 = {0} ;
@@ -869,7 +920,7 @@ int main( int argc, char **argv) {
         update_screen(sdl , config , &chip8) ;
 
         //update delay and sound timers
-        update_timers(&chip8) ;
+        update_timers(&chip8, sdl) ;
     }
 
 
